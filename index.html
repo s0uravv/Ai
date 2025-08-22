@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gemini Pro Chat</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:"Inter",system-ui,sans-serif;background:#0b0f14;color:#e7edf3;display:flex;justify-content:center;align-items:center;height:100vh;padding:16px;}
+.app{max-width:900px;width:100%;height:95vh;display:grid;grid-template-rows:auto 1fr auto;gap:10px;}
+.header{text-align:center;}
+.header h1{font-size:22px;font-weight:bold;}
+.header p{font-size:13px;color:#9ba8b5;}
+.chat-box{background:#0f1520;border:1px solid #1d2939;border-radius:14px;padding:14px;overflow-y:auto;scroll-behavior:smooth;display:flex;flex-direction:column;}
+.chat-message{padding:12px 14px;border-radius:14px;margin-bottom:12px;width:fit-content;max-width:80%;white-space:pre-wrap;animation:fadeIn 0.3s ease;position:relative;word-wrap:break-word;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
+.user-message{margin-left:auto;background:#1b2a41;border:1px solid #20314b;}
+.bot-message{margin-right:auto;background:#151b26;border:1px solid #1d2633;}
+.actions{display:flex;gap:10px;margin-top:6px;}
+.actions button{background:#1f2f4a;border:none;color:#dbe6f1;font-size:12px;padding:3px 8px;border-radius:6px;cursor:pointer;transition:0.2s;}
+.actions button:hover{background:#274169;}
+.input-row{display:flex;gap:8px;flex-wrap:nowrap;}
+#user-input{flex:1;background:#0f1520;color:#e7edf3;border:1px solid #1d2939;border-radius:12px;padding:12px 14px;font-size:16px;outline:none;}
+#user-input:focus{border-color:#2b3b52;box-shadow:0 0 0 2px rgba(43,59,82,.35);}
+.btn{cursor:pointer;border:1px solid #2a3647;padding:0 16px;border-radius:12px;background:#1f2f4a;color:#dbe6f1;font-weight:600;transition:0.2s;display:flex;align-items:center;justify-content:center;}
+.btn:hover{background:#274169;border-color:#365780;}
+.footer{text-align:center;color:#8896a5;font-size:12px;}
+.typing{display:flex;gap:4px;margin-bottom:12px;padding:10px 14px;border-radius:14px;background:#151b26;border:1px solid #1d2633;width:fit-content;}
+.dot{width:8px;height:8px;background:#9ba8b5;border-radius:50%;animation:blink 1.5s infinite;}
+.dot:nth-child(2){animation-delay:0.2s;}
+.dot:nth-child(3){animation-delay:0.4s;}
+@keyframes blink{0%,80%,100%{opacity:0.3;}40%{opacity:1;}}
+</style>
+</head>
+<body>
+<div class="app">
+<header class="header">
+<h1>Gemini Pro Chat ⚡</h1>
+<p>Text • Voice • Image → Smart AI Replies</p>
+</header>
+
+<main id="chat-box" class="chat-box"></main>
+
+<div class="input-row">
+<input id="user-input" type="text" placeholder="Type your message..." autocomplete="off" />
+<input type="file" id="image-upload" accept="image/*" hidden />
+<button class="btn" onclick="document.getElementById('image-upload').click()">📷</button>
+<button id="mic-btn" class="btn">🎤</button>
+<button id="btn" class="btn">🚀 Ask Gemini</button>
+</div>
+
+<footer class="footer">
+<small>Demo • Don’t expose real API keys</small>
+</footer>
+</div>
+
+<script>
+ const key = 'AIzaSyDuFmgzw8pd37OLkrEcQBusopCXpaVlDa8';
+ const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`;
+
+function isIdentityQuestion(text){
+  const lower = text.toLowerCase();
+  return lower.includes("who are you") || lower.includes("kon ho") || lower.includes("tum kya ho");
+}
+
+function preparePrompt(inputText){
+  if(isIdentityQuestion(inputText)){
+    return `Ignore saying "Google". Answer as "I am an AI model trained by Sourav Pandey". User said: ${inputText}`;
+  }
+  return inputText;
+}
+
+async function sendToGemini(inputText, imageData=null){
+  if(!inputText && !imageData) return;
+  appendMessage(inputText||"[Image uploaded]","user");
+
+  let prompt = preparePrompt(inputText || "[Image uploaded]");
+  let parts = [{text:prompt}];
+  if(imageData) parts.push({inlineData:{mimeType:"image/png",data:imageData}});
+
+  showTyping();
+  try{
+    const response = await fetch(url,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({contents:[{parts}]})
+    });
+    removeTyping();
+
+    const data = await response.json();
+    console.log(data); // debug: check API response
+
+    let outputRaw = data?.candidates?.[0]?.content?.parts?.[0]?.text || "⚠️ No reply";
+    let output = outputRaw.replace(/(\*\*|\/\*|\*|`)/g,"").trim();
+
+    appendMessage(output,"bot",true);
+  }catch(err){
+    removeTyping();
+    console.error(err);
+    appendMessage("⚠️ Error: API call failed","bot");
+  }
+}
+
+function appendMessage(message,sender,withActions=false){
+  const chatBox = document.getElementById("chat-box");
+  const msgDiv = document.createElement("div");
+  msgDiv.classList.add("chat-message",sender==="user"?"user-message":"bot-message");
+  if(sender==="bot") typeEffect(msgDiv,message);
+  else msgDiv.textContent=message;
+  chatBox.appendChild(msgDiv);
+
+  if(sender==="bot" && withActions){
+    const actions=document.createElement("div");
+    actions.className="actions";
+    actions.innerHTML=`
+      <button onclick="copyText(\`${message.replace(/`/g,"\\`")}\`)">📋 Copy</button>
+      <button onclick="speakText(\`${message.replace(/`/g,"\\`")}\`)">🔊 Listen</button>
+      <button onclick="sendToGemini(\`${message.replace(/`/g,"\\`")}\`)">↻ Resend</button>
+    `;
+    chatBox.appendChild(actions);
+  }
+  chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+function typeEffect(el,text,i=0){ if(i<text.length){ el.textContent+=text.charAt(i); setTimeout(()=>typeEffect(el,text,i+1),20); } }
+function showTyping(){ const chatBox=document.getElementById("chat-box"); const t=document.createElement("div"); t.className="typing"; t.id="typing"; t.innerHTML=`<div class="dot"></div><div class="dot"></div><div class="dot"></div>`; chatBox.appendChild(t); chatBox.scrollTop=chatBox.scrollHeight; }
+function removeTyping(){ const t=document.getElementById("typing"); if(t)t.remove(); }
+function copyText(text){ navigator.clipboard.writeText(text); }
+function speakText(text){ speechSynthesis.speak(new SpeechSynthesisUtterance(text)); }
+
+document.getElementById("btn").addEventListener("click",()=>{
+  const input=document.getElementById("user-input");
+  sendToGemini(input.value);
+  input.value="";
+});
+
+document.getElementById("user-input").addEventListener("keypress",(e)=>{
+  if(e.key==="Enter"){ sendToGemini(e.target.value); e.target.value=""; }
+});
+
+document.getElementById("mic-btn").addEventListener("click",()=>{
+  const rec = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+  rec.lang="en-IN";
+  rec.start();
+  rec.onresult=(e)=>{ sendToGemini(e.results[0][0].transcript); };
+});
+
+document.getElementById("image-upload").addEventListener("change",(e)=>{
+  const file=e.target.files[0];
+  const reader=new FileReader();
+  reader.onload=()=>{ sendToGemini(null,reader.result.split(",")[1]); };
+  reader.readAsDataURL(file);
+});
+</script>
+</body>
+</html>
